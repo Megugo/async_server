@@ -7,7 +7,7 @@ with open("f.txt", "r") as f:
 fname = "f.txt"
 
 class MyEventHandler(FileSystemEventHandler):
-    def on_closed(self, event):#on_modified(self, event):
+    def on_closed(self, event):
         global to_out
         if event.src_path=='./f.txt':
             with open("f.txt","r") as f:
@@ -15,8 +15,6 @@ class MyEventHandler(FileSystemEventHandler):
                 f.close()
             print(event)
             print(to_out)
-        #print(f'Got event: {event}')
-
 
 observer = Observer()
 observer.schedule(MyEventHandler(), ".")#, recursive=True)
