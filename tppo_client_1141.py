@@ -1,25 +1,34 @@
-from socket import *
-import sys
+import asyncio
 
-host = 'localhost'
-port = 8888
-addr = (host,port)
+async def tcp_echo_client():
+    reader, writer = await asyncio.open_connection(
+        '127.0.0.1', 8888)
+    message =""
+    #data_input = await get_steam_reader(sys.stdin)
+    while message!="exit":
+        message = input()#await ainput("")
 
-tcp_socket = socket(AF_INET, SOCK_STREAM)
-tcp_socket.connect(addr)
+        if message:
+            print(f'Send: {message}')
+            writer.write(message.encode())
 
+        if message == '3':
+            while True:
+                try:
+                    data = await reader.read(100)
+                    if data!=b"":
+                        print(f'Received: {data.decode()!r}')
+                except BaseException:#KeyboardInterrupt:
+                    print("closing")
+                    writer.write(b"3")
+                    break
+        await writer.drain()
+        data = await reader.read(100)
+        print(f'Received: {data.decode()!r}')
 
-data = input('write to server: ')
-if not data :
-    tcp_socket.close()
-    sys.exit(1)
+    print('Close the connection')
 
-#encode - перекодирует введенные данные в байты, decode - обратно
-data = str.encode(data)
-tcp_socket.send(data)
-data = bytes.decode(data)
-data = tcp_socket.recv(1024)
-print(data)
+    writer.close()
+    await writer.wait_closed()
 
-
-tcp_socket.close()
+asyncio.run(tcp_echo_client())
