@@ -5,9 +5,10 @@ async def tcp_echo_client():
         '127.0.0.1', 8888)
     message =""
     #data_input = await get_steam_reader(sys.stdin)
-    while message!="exit":
+    while True:
         message = input()#await ainput("")
-
+        if message == "exit":
+            break
         if message:
             print(f'Send: {message}')
             writer.write(message.encode())
