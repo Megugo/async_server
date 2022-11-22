@@ -11,7 +11,11 @@ reley_condition = {1:0,
                    5:0,
                    6:0}
 
+prev_condition = {}
+
 writers_for_broadcast = []
+
+json_out = {"data":""}
 
 with open("f.txt", "r") as f:
     try:
@@ -34,7 +38,7 @@ class MyEventHandler(FileSystemEventHandler):
 
                     status_broadcast()
 
-                    print(f"Conditions change by reley:\n{json.dumps(reley_condition, indent=2)}")
+                    print(f"Conditions changed:\n{json.dumps(reley_condition, indent=2)}")
 
                 except IndexError:
                     print("Error: Not enough values from reley file")
@@ -42,96 +46,104 @@ class MyEventHandler(FileSystemEventHandler):
 
 
 def status_broadcast() -> None:
-    json_reley_condition = json.dumps(reley_condition)
+    json_out["data"] = json.dumps(reley_condition)
+
     for wrt in writers_for_broadcast:
         try:
-            wrt.write(json_reley_condition.encode())
+            send_json(wrt,json_out)
         except ConnectionError:
             print("wrong writer", wrt)
 
+def send_json(writer,json_dict):
+    writer.write(json.dumps(json_dict).encode())
 
 async def handler(reader: asyncio.StreamReader,writer: asyncio.StreamWriter)->None:
-    out_data = None #json.dumps(reley_condition)
-    #input_data = await reader.read(1024)
-    #msg = input_data
+    out_data = None
     addr,port = writer.get_extra_info("peername")
-    print(f"Addr:{addr}, port:{port}")
+    print(f"Connected: Addr:{addr}, port:{port}\n")
     broadcasting = False
+
+
     while True:
-        raw_data = await reader.read(1000)#.decode()
-        data = raw_data.decode('utf8').strip("\r\n").split(" ")#decode()
-
-        command = data[0]
-        #msg = data[1].replace("'", '"')
-        print(data)
-
-        #print(msg)
+        raw_data = await reader.read(1000)
+        data = json.loads(raw_data)
+        command = data["command"]
+        print(f"Received data: {data}\n")
 
         if "1" in command and len(data)>1:
-            msg = data[1].replace("'", '"')
-            print("Before change",reley_condition)
-            #json.loads(msg))
+            msg = data["data"]
+            prev_condition = reley_condition.copy()
             try:
-                #print("for dict",ast.literal_eval(msg))
-                dict_msg = ast.literal_eval(msg)#json.loads(msg)
-                print("for dict",dict_msg)
+                dict_msg = ast.literal_eval(msg)
                 if type(dict_msg) is dict:
-                    print("for dict",dict_msg)
                     for i in dict_msg:
                         if (dict_msg[i] in [0,1]) and i in reley_condition.keys() :
                             reley_condition[i]= dict_msg[i]
-                        else:
-                            writer.write(f"Wrong key {i} or value {dict_msg[i]}".encode())
-                    writer.write(b"Conditions changed")
-                    print("After change",reley_condition)
+
+                    if prev_condition!=reley_condition:
+                        json_out["data"] = "Conditions changed"
+                        send_json(writer,json_out)
+                        with open("f.txt", "w") as f:
+                            str_conditions =" ".join(str(reley_condition[c]) for c in reley_condition)
+                            f.write(str_conditions)
+
+                    else:
+                        json_out["data"] = "Nothing changed"
+                        send_json(writer,json_out)
 
                 else:
-                    writer.write(b"Not a dict")
+                    json_out["data"] = "Not a dict"
+                    send_json(writer,json_out)
 
-                status_broadcast()
-
-            except LookupError:
-                writer.write(b"wrong dict")
-                pass
-            except SyntaxError:
-                writer.write(b"wrong dict")
-                pass
-            except ValueError:
-                writer.write(b"wrong dict")
-                pass
+            except LookupError or SyntaxError or ValueError:
+                json_out["data"] = "wrong dict"
+                send_json(writer,json_out)
 
         elif "2" == command and len(data)>1:
-            writer.write(json.dumps(reley_condition).encode())
+            msg = set(data["data"].split(","))
+            chenels =[]
+            for i in msg:
+                if int(i) not in chanels and 0<int(i)<7:
+                    chanels.append(int(i))
+            chanels.sort()
+            selected_chanels = {}
+            for i in chanels:
+                try:
+                    selected_chanels[i] = reley_condition[i]
+                except KeyError:
+                    pass
+            json_out["data"] = selected_chanels
+            send_json(writer,json_out)
 
         elif "3" == command:
-
             if broadcasting == True:
                 broadcasting = False
                 writers_for_broadcast.remove(writer)
-                writer.write(b"Broadcasting stoped")
-                print(f"{addr} removed from broadcast")
+                json_out["data"] = "Broadcasting stoped"
+                send_json(writer,json_out)
+                print(f"{addr} removed from broadcast\n")
 
             elif broadcasting == False:
                 broadcasting = True
                 writers_for_broadcast.append(writer)
-                writer.write(b"Broadcasting started")
-                print(f"{addr} added to broadcast")
+                json_out["data"] = "Broadcasting started"
+                send_json(writer,json_out)
+                print(f"{addr} added to broadcast\n")
 
-        else: #command not in ["1","2","3"]:
-            writer.write(b"Wrong command or not enough values")
-
+        else:
+            json_out["data"] = "Wrong command or not enough values"
+            send_json(writer,json_out)
 
         await writer.drain()
 
-        if data == "exit" or not data[0]:
-            if writer in writers_for_broadcast:
+        if data["command"] == "exit" or not data["command"]:
+            print(f"{addr} disconnected")
+            if broadcasting == True:
                 writers_for_broadcast.remove(writer)
-                print(f"{addr} removed from broadcast")
+                print(f"{addr} removed from broadcast\n")
             break
 
     writer.close()
-
-
 
 async def run_server() -> None:
     server = await asyncio.start_server(handler, "127.0.0.1", 8888)
@@ -139,13 +151,12 @@ async def run_server() -> None:
         await server.serve_forever()
 
 if __name__ == "__main__":
+
     observer = Observer()
-    observer.schedule(MyEventHandler(), ".")  # , recursive=True)
+    observer.schedule(MyEventHandler(), ".")
     observer.start()
 
     asyncio.run(run_server())
-    # loop = asyncio.new_event_loop()
-    # loop.run_until_complete(run_server())
 
     observer.stop()
     observer.join()
