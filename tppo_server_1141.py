@@ -17,45 +17,35 @@ writers_for_broadcast = []
 
 json_out = {"data":""}
 
-with open("f.txt", "r") as f:
-    try:
-        conditions = f.readline().strip("\n").split(" ")[:6]
-        for i in reley_condition:
-            reley_condition[i] = int(conditions[i-1])
-    except IndexError:
-        print("Error: Not enough values from reley file")
-        exit(0)
+def get_reley_status():
+    with open("f.txt", "r") as f:
+        try:
+            conditions = f.readline().strip("\n").split(" ")[:6]
+            for i in reley_condition:
+                reley_condition[i] = int(conditions[i-1])
+
+            status_broadcast()
+            print(f"Current reley conditions:\n{json.dumps(reley_condition, indent=2)}")
+        except IndexError:
+            print("Error: Not enough values from reley file")
+            exit(0)
 
 class MyEventHandler(FileSystemEventHandler):
     def on_closed(self, event):
         if event.src_path == './f.txt':
-            with open("f.txt", "r") as f:
-                try:
-
-                    conditions = f.readline().strip("\n").split(" ")[:6]
-                    for i in reley_condition:
-                        reley_condition[i] = int(conditions[i - 1])
-
-                    status_broadcast()
-
-                    print(f"Conditions changed:\n{json.dumps(reley_condition, indent=2)}")
-
-                except IndexError:
-                    print("Error: Not enough values from reley file")
-                    exit(0)
-
+            get_reley_status()
 
 def status_broadcast() -> None:
     json_out["data"] = json.dumps(reley_condition)
 
     for wrt in writers_for_broadcast:
-        try:
-            send_json(wrt,json_out)
-        except ConnectionError:
-            print("wrong writer", wrt)
+        send_json(wrt,json_out)
 
 def send_json(writer,json_dict):
-    writer.write(json.dumps(json_dict).encode())
+    try:
+        writer.write(json.dumps(json_dict).encode())
+    except ConnectionError as e:
+        print(f"Can't send to {writer.get_extra_info('peername')[0]}.\n Error: ", e)
 
 async def handler(reader: asyncio.StreamReader,writer: asyncio.StreamWriter)->None:
     out_data = None
@@ -66,9 +56,16 @@ async def handler(reader: asyncio.StreamReader,writer: asyncio.StreamWriter)->No
 
     while True:
         raw_data = await reader.read(1000)
-        data = json.loads(raw_data)
+        try:
+            data = json.loads(raw_data)
+        except json.decoder.JSONDecodeError as e:
+            send_json(writer,{"data":f"Error: {e}"})
+            print("Error: ", e)
+            continue
+
+        print(f"Received data from {addr}: {data}\n")
+
         command = data["command"]
-        print(f"Received data: {data}\n")
 
         if "1" in command and len(data)>1:
             msg = data["data"]
@@ -95,24 +92,30 @@ async def handler(reader: asyncio.StreamReader,writer: asyncio.StreamWriter)->No
                     json_out["data"] = "Not a dict"
                     send_json(writer,json_out)
 
-            except LookupError or SyntaxError or ValueError:
+            except LookupError:
+                json_out["data"] = "wrong dict"
+                send_json(writer,json_out)
+            except SyntaxError:
+                json_out["data"] = "wrong dict"
+                send_json(writer,json_out)
+            except ValueError:
                 json_out["data"] = "wrong dict"
                 send_json(writer,json_out)
 
         elif "2" == command and len(data)>1:
             msg = set(data["data"].split(","))
-            chenels =[]
+            channels =[]
             for i in msg:
-                if int(i) not in chanels and 0<int(i)<7:
-                    chanels.append(int(i))
-            chanels.sort()
-            selected_chanels = {}
-            for i in chanels:
+                if int(i) not in channels and 0<int(i)<7:
+                    channels.append(int(i))
+            channels.sort()
+            selected_channels = {}
+            for i in channels:
                 try:
-                    selected_chanels[i] = reley_condition[i]
+                    selected_channels[i] = reley_condition[i]
                 except KeyError:
                     pass
-            json_out["data"] = selected_chanels
+            json_out["data"] = selected_channels
             send_json(writer,json_out)
 
         elif "3" == command:
@@ -151,6 +154,8 @@ async def run_server() -> None:
         await server.serve_forever()
 
 if __name__ == "__main__":
+
+    get_reley_status()
 
     observer = Observer()
     observer.schedule(MyEventHandler(), ".")
