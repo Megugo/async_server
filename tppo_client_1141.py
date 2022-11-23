@@ -1,5 +1,6 @@
 import asyncio
 import json
+
 def info_message():
     print("Commands:\n 1 - переключает заданные каналы,\n формат записи '1 {chanel_number:condition}', condition = [0,1], chanel_number = [1,2,3,4,5,6]\n")
     print(" 2 - получает состояние заданных каналов,\n формат '2 chanel_number_1,chanel_number_2...'\n")
